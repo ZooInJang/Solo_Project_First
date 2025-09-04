@@ -1,3 +1,5 @@
+실행 파일 : PreLotto_re.py
+
 필수 파일
 - PreLotto_re.py : 메인 실행 파일
 - data.txt : 지난 로또 번호 내역이 저장된 데이터 파일
