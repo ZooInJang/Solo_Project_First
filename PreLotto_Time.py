@@ -1,4 +1,4 @@
-from selenium import webdriver
+﻿from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 import schedule
@@ -76,6 +76,14 @@ if os.path.exists('last_run.txt'):
 # 프로그램 시작 전에 먼저 1번 실행
 job()
 
+# 시계열 학습용 데이터셋 생성
+def create_dataset(data, time_steps=5):
+    X, y = [], []
+    for i in range(len(data) - time_steps):
+        X.append(data[i:i+time_steps])   # 입력: time_steps 회차
+        y.append(data[i+time_steps])     # 출력: 다음 회차
+    return np.array(X), np.array(y)
+
 # 예측 함수
 def predict():
     if not os.path.exists('data.txt'):
@@ -86,33 +94,45 @@ def predict():
         lines = f.readlines()
 
     data = [eval(line.strip()) for line in lines if len(line.strip()) > 0]
-    if len(data) < 1:
+    if len(data) < 10:
         print("충분한 데이터가 없습니다.")
         return
 
+    # 숫자 정규화
     normalized_data = np.array(data, dtype=float) / 45.0
-    normalized_data = np.reshape(normalized_data, (normalized_data.shape[0], 6, 1))
 
+    # 시계열 데이터셋 생성 (최근 5회차 → 다음 회차)
+    time_steps = 5
+    X, y = create_dataset(normalized_data, time_steps)
+
+    # 입력 형태: (샘플 수, time_steps, 6)
+    X = np.reshape(X, (X.shape[0], time_steps, 6))
+    y = np.reshape(y, (y.shape[0], 6))
+
+    # LSTM 모델 정의
     model = Sequential()
-    model.add(LSTM(64, activation='relu', return_sequences=True, input_shape=(6, 1)))
+    model.add(LSTM(64, activation='relu', return_sequences=True, input_shape=(time_steps, 6)))
     model.add(LSTM(32, activation='relu'))
     model.add(Dense(6, activation='linear'))
 
     model.compile(optimizer='adam', loss='mse')
-    model.fit(normalized_data, normalized_data, epochs=200, verbose=0)
+    model.fit(X, y, epochs=200, verbose=0)
 
-    test_input = np.array([np.array(data[-1], dtype=float) / 45.0])
-    test_input = np.reshape(test_input, (test_input.shape[0], 6, 1))
-    prediction = model.predict(test_input)
+    # 마지막 5회차를 입력으로 사용해 다음 회차 예측
+    last_input = normalized_data[-time_steps:]
+    last_input = np.reshape(last_input, (1, time_steps, 6))
+    prediction = model.predict(last_input)
 
     prediction = prediction * 45
-    prediction1 = np.round(prediction).astype(int)
-    prediction2 = np.floor(prediction).astype(int)
-    prediction3 = np.ceil(prediction).astype(int)
+    prediction = np.round(prediction).astype(int)[0]
 
-    print("반올림한 값 :", *prediction1[0])
-    print("내림 값 :", *prediction2[0])
-    print("올림 값 :", *prediction3[0])
+    # 중복 제거 및 범위 보정
+    prediction = np.clip(prediction, 1, 45)
+    prediction = list(set(prediction))
+    while len(prediction) < 6:
+        prediction.append(np.random.randint(1, 46))
+
+    print("예측된 다음 회차 번호 :", sorted(prediction))
 
 # 스케줄링 설정
 schedule.every().seconds.do(job)
